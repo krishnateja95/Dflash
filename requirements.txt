@@ -1,0 +1,17 @@
+# Core runtime
+aiohttp
+datasets
+numpy
+torch
+transformers
+
+# Serving and benchmarking
+vllm
+guidellm
+huggingface-hub
+
+# Optional acceleration for JSONL write/read in data generation
+orjson
+
+# Optional experiment tracking
+trackio
