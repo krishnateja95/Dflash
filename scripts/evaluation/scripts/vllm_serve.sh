@@ -145,9 +145,20 @@ done
 # Apply Defaults
 # ==============================================================================
 
+# Enable speculative decoding only when explicitly requested.
+# This keeps plain baseline runs truly non-speculative.
+ENABLE_SPECULATIVE="false"
+if [[ -n "${SPECULATOR_MODEL}" || -n "${METHOD}" || -n "${NUM_SPEC_TOKENS}" ]]; then
+    ENABLE_SPECULATIVE="true"
+fi
+
+# Apply speculative defaults only when enabled.
+if [[ "${ENABLE_SPECULATIVE}" == "true" ]]; then
+    NUM_SPEC_TOKENS="${NUM_SPEC_TOKENS:-3}"
+    METHOD="${METHOD:-eagle3}"
+fi
+
 # Apply defaults for any arguments not provided
-NUM_SPEC_TOKENS="${NUM_SPEC_TOKENS:-3}"
-METHOD="${METHOD:-eagle3}"
 TENSOR_PARALLEL_SIZE="${TENSOR_PARALLEL_SIZE:-1}"
 MAX_MODEL_LEN="${MAX_MODEL_LEN:-24000}"
 GPU_MEMORY_UTILIZATION="${GPU_MEMORY_UTILIZATION:-0.85}"
@@ -169,16 +180,24 @@ if [[ -z "${BASE_MODEL}" ]]; then
 fi
 
 # SPECULATOR_MODEL is optional: omit for built-in MTP heads
+if [[ "${ENABLE_SPECULATIVE}" == "true" && "${METHOD}" == "eagle3" && -z "${SPECULATOR_MODEL}" ]]; then
+    echo "[ERROR] METHOD=eagle3 requires -s SPECULATOR_MODEL" >&2
+    exit 1
+fi
 
 # ==============================================================================
 # Start Server
 # ==============================================================================
 
-echo "[INFO] Starting vLLM server with speculative decoding"
+echo "[INFO] Starting vLLM server"
 echo "[INFO]   Base model: ${BASE_MODEL}"
-echo "[INFO]   Speculator model: ${SPECULATOR_MODEL:-(built-in MTP head)}"
-echo "[INFO]   Num speculative tokens: ${NUM_SPEC_TOKENS}"
-echo "[INFO]   Method: ${METHOD}"
+if [[ "${ENABLE_SPECULATIVE}" == "true" ]]; then
+    echo "[INFO]   Speculator model: ${SPECULATOR_MODEL:-(built-in MTP head)}"
+    echo "[INFO]   Num speculative tokens: ${NUM_SPEC_TOKENS}"
+    echo "[INFO]   Method: ${METHOD}"
+else
+    echo "[INFO]   Speculative decoding: disabled"
+fi
 echo "[INFO]   Tensor parallel size: ${TENSOR_PARALLEL_SIZE}"
 echo "[INFO]   Max model length: ${MAX_MODEL_LEN}"
 echo "[INFO]   GPU memory utilization: ${GPU_MEMORY_UTILIZATION}"
@@ -189,12 +208,12 @@ echo "[INFO]   Log file: ${SERVER_LOG}"
 [[ -n "${TOKENIZER_MODE}" ]] && echo "[INFO]   Tokenizer mode: ${TOKENIZER_MODE}"
 [[ "${NO_CHUNKED_PREFILL}" == "true" ]] && echo "[INFO]   Chunked prefill: disabled"
 
-# Build speculative-config JSON:
+# Build speculative-config JSON only when speculative decoding is enabled:
 #   With external speculator (Eagle): include model + max_model_len fields
 #   Without speculator (MTP built-in): method + num_speculative_tokens only
-if [[ -n "${SPECULATOR_MODEL}" ]]; then
+if [[ "${ENABLE_SPECULATIVE}" == "true" && -n "${SPECULATOR_MODEL}" ]]; then
     SPEC_CONFIG="{\"model\": \"${SPECULATOR_MODEL}\", \"num_speculative_tokens\": ${NUM_SPEC_TOKENS}, \"method\": \"${METHOD}\", \"max_model_len\": ${MAX_MODEL_LEN}}"
-else
+elif [[ "${ENABLE_SPECULATIVE}" == "true" ]]; then
     SPEC_CONFIG="{\"method\": \"${METHOD}\", \"num_speculative_tokens\": ${NUM_SPEC_TOKENS}}"
 fi
 
@@ -209,17 +228,22 @@ if ss -tlnp 2>/dev/null | grep -q ":${PORT} " || nc -z 127.0.0.1 "${PORT}" 2>/de
     exit 1
 fi
 
-vllm serve "${BASE_MODEL}" \
-    --seed 42 \
-    --tensor-parallel-size "${TENSOR_PARALLEL_SIZE}" \
-    --max-model-len "${MAX_MODEL_LEN}" \
-    --gpu-memory-utilization "${GPU_MEMORY_UTILIZATION}" \
-    --max-num-batched-tokens "${MAX_NUM_BATCHED_TOKENS}" \
-    --max-num-seqs "${MAX_NUM_SEQS}" \
-    --port "${PORT}" \
-    --speculative-config "${SPEC_CONFIG}" \
-    "${EXTRA_FLAGS[@]}" \
-    > "${SERVER_LOG}" 2>&1 &
+VLLM_CMD=(
+    vllm serve "${BASE_MODEL}"
+    --seed 42
+    --tensor-parallel-size "${TENSOR_PARALLEL_SIZE}"
+    --max-model-len "${MAX_MODEL_LEN}"
+    --gpu-memory-utilization "${GPU_MEMORY_UTILIZATION}"
+    --max-num-batched-tokens "${MAX_NUM_BATCHED_TOKENS}"
+    --max-num-seqs "${MAX_NUM_SEQS}"
+    --port "${PORT}"
+)
+if [[ "${ENABLE_SPECULATIVE}" == "true" ]]; then
+    VLLM_CMD+=(--speculative-config "${SPEC_CONFIG}")
+fi
+VLLM_CMD+=("${EXTRA_FLAGS[@]}")
+
+"${VLLM_CMD[@]}" > "${SERVER_LOG}" 2>&1 &
 
 VLLM_PID=$!
 echo "${VLLM_PID}" > "${PID_FILE}"

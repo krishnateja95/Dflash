@@ -1,7 +1,6 @@
 # Dflash Training and Evaluation Scripts
 
-This repository is a cleaned, GitHub-friendly organization of the original
-`my_scripts` workspace used for:
+This repository is an implementation of Dflash draft model training which contains:
 
 - data regeneration with vLLM
 - DFlash data preprocessing

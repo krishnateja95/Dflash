@@ -167,8 +167,6 @@ fi
 # ==============================================================================
 
 # Apply defaults for any variables not set by CLI args or config file
-NUM_SPEC_TOKENS="${NUM_SPEC_TOKENS:-16}"
-METHOD="${METHOD:-dflash}"
 TENSOR_PARALLEL_SIZE="${TENSOR_PARALLEL_SIZE:-1}"
 MAX_MODEL_LEN="${MAX_MODEL_LEN:-24000}"
 GPU_MEMORY_UTILIZATION="${GPU_MEMORY_UTILIZATION:-0.85}"
@@ -181,6 +179,20 @@ TEMPERATURE="${TEMPERATURE:-0.6}"
 TOP_P="${TOP_P:-0.95}"
 TOP_K="${TOP_K:-20}"
 RATE="${RATE:-8}"
+
+# Enable speculative decoding only when explicitly requested via:
+# - a provided speculator model, or
+# - explicit speculative settings from config.
+ENABLE_SPECULATIVE="false"
+if [[ -n "${SPECULATOR_MODEL}" || -n "${METHOD}" || -n "${NUM_SPEC_TOKENS}" ]]; then
+    ENABLE_SPECULATIVE="true"
+fi
+
+# Apply speculative defaults only when speculative decoding is enabled.
+if [[ "${ENABLE_SPECULATIVE}" == "true" ]]; then
+    NUM_SPEC_TOKENS="${NUM_SPEC_TOKENS:-16}"
+    METHOD="${METHOD:-dflash}"
+fi
 
 # ==============================================================================
 # Validate Configuration
@@ -203,7 +215,7 @@ if ! check_dependencies; then
 fi
 
 # eagle3 requires an external speculator; mtp uses the built-in head
-if [[ "${METHOD}" == "eagle3" && -z "${SPECULATOR_MODEL}" ]]; then
+if [[ "${ENABLE_SPECULATIVE}" == "true" && "${METHOD}" == "eagle3" && -z "${SPECULATOR_MODEL}" ]]; then
     echo "[ERROR] METHOD=eagle3 requires SPECULATOR_MODEL to be set (use -s or set it in the config file)" >&2
     exit 1
 fi
@@ -237,8 +249,6 @@ echo "[INFO] Starting vLLM server..."
 
 SERVE_ARGS=(
     -b "${BASE_MODEL}"
-    --num-spec-tokens "${NUM_SPEC_TOKENS}"
-    --method "${METHOD}"
     --tensor-parallel-size "${TENSOR_PARALLEL_SIZE}"
     --max-model-len "${MAX_MODEL_LEN}"
     --gpu-memory-utilization "${GPU_MEMORY_UTILIZATION}"
@@ -250,6 +260,9 @@ SERVE_ARGS=(
     --pid-file "${SERVER_PID}"
 )
 [[ -n "${SPECULATOR_MODEL}" ]] && SERVE_ARGS+=(-s "${SPECULATOR_MODEL}")
+if [[ "${ENABLE_SPECULATIVE}" == "true" ]]; then
+    SERVE_ARGS+=(--num-spec-tokens "${NUM_SPEC_TOKENS}" --method "${METHOD}")
+fi
 [[ -n "${TOKENIZER_MODE}" ]] && SERVE_ARGS+=(--tokenizer-mode "${TOKENIZER_MODE}")
 [[ "${NO_CHUNKED_PREFILL}" == "true" ]] && SERVE_ARGS+=(--no-enable-chunked-prefill)
 

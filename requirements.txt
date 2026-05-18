@@ -13,5 +13,8 @@ huggingface-hub
 # Optional acceleration for JSONL write/read in data generation
 orjson
 
+# Plot generation
+matplotlib
+
 # Optional experiment tracking
 trackio

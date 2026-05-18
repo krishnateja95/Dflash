@@ -48,6 +48,16 @@ DATASETS=(
   "writing.jsonl"
 )
 
+TARGET_MODELS=(
+  "Qwen/Qwen3-8B"
+  "Qwen/Qwen3-8B-FP8"
+)
+
+DRAFT_MODELS=(
+  "krishnateja95/Qwen3-8B-Dflash"
+  "krishnateja95/Qwen3-8B-FP8-Dflash"
+)
+
 WAIT_READY_TIMEOUT=6000
 BENCH_SECONDS=90
 
@@ -55,9 +65,11 @@ BASE_DIR="$(cd "$(dirname "$0")" && pwd)"
 QUEUE_FILE=$(mktemp)
 QUEUE_LOCK=$(mktemp)
 
-# Output folder names (per user request)
-BASELINE_DIR="qwen3_8b"
-DFLASH_DIR="qwen3_8b_dflash"
+safe_name() {
+  # Keep folder names deterministic and shell-safe.
+  local value="$1"
+  echo "${value}" | tr '/[:upper:]' '_[:lower:]' | tr -cd 'a-z0-9_.-'
+}
 
 # ---------------------------------------------------------------------------
 # Qwen3 tool-calling + reasoning flags.
@@ -108,33 +120,38 @@ enqueue_dflash() {
 
 
 
-# ============================================================================
-# Qwen3-8B dense (BF16, single 24GB+ GPU)
-# 8.2B total params, 36 layers, GQA (32 Q heads / 8 KV heads),
-# native 32k ctx (131k via YaRN). Reasoning mode on.
-# ============================================================================
+# Build queue for all requested combinations.
+# For each target model:
+#   1) Baseline (no speculative decoding)
+#   2) Dflash with each draft model (k=16)
+for target_model in "${TARGET_MODELS[@]}"; do
+  target_name=$(safe_name "${target_model}")
+  baseline_dir="eval_results/${target_name}__baseline/"
 
-# 1) Baseline: target only, no speculative decoding -> ./qwen3_8b/
-enqueue_baseline "${BASELINE_DIR}" \
-                 "Qwen/Qwen3-8B" \
-                 "${QWEN3_TOOL_ARGS_STR}"
+  enqueue_baseline "${baseline_dir}" \
+                   "${target_model}" \
+                   "${QWEN3_TOOL_ARGS_STR}"
 
-# 2) Dflash speculative decoding (k = 16) -> ./qwen3_8b_dflash/
-enqueue_dflash "${DFLASH_DIR}" \
-               "Qwen/Qwen3-8B" \
-               "krishnateja95/Qwen3-8B-Dflash" \
-               16 \
-               "${QWEN3_TOOL_ARGS_STR}"
+  for draft_model in "${DRAFT_MODELS[@]}"; do
+    draft_name=$(safe_name "${draft_model}")
+    output_dir="eval_results/${target_name}__${draft_name}/"
+    enqueue_dflash "${output_dir}" \
+                   "${target_model}" \
+                   "${draft_model}" \
+                   16 \
+                   "${QWEN3_TOOL_ARGS_STR}"
+  done
+done
 
 total_datasets=${#DATASETS[@]}
 total_jobs=$(( total_groups * total_datasets ))
 
 echo "============================================================"
-echo " Qwen3-8B benchmark: baseline + Dflash speculative decoding"
+echo " Qwen3-8B benchmark: all target/draft combinations"
 echo " ${total_groups} server groups"
 echo " ${total_datasets} datasets per group = ${total_jobs} total benchmark runs"
 echo " Running ${NUM_WORKERS} parallel workers (${TENSOR_PARALLEL} GPUs each, TP=${TENSOR_PARALLEL})"
-echo " Output folders: ./${BASELINE_DIR}/ and ./${DFLASH_DIR}/"
+echo " Output folders: ${BASE_DIR}/eval_results/<target_name>__<draft_name>/"
 echo "============================================================"
 
 if command -v nvidia-smi >/dev/null 2>&1; then

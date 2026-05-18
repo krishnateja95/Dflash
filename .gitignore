@@ -26,6 +26,7 @@ checkpoints/
 *.arrow
 
 eval_results_*/
+eval_results/
 acceptance_rate_results/
 perf_results/
 qwen3_8b/

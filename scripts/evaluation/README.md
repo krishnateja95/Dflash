@@ -24,10 +24,14 @@ bash scripts/evaluation/run_evaluation.sh \
 Batch run across common dataset files:
 
 ```bash
-export SPECULATOR_MODEL_PATH="./output/checkpoints/checkpoint_best"
 export DATASET_DIR="./dataset/speculator_benchmarks"
 bash scripts/evaluation/6_run_guidellm.sh
 ```
+
+`6_run_guidellm.sh` currently runs:
+
+- Baseline for each target model in its `target_models` list
+- Speculative runs for each draft model in its `draft_models` list
 
 Config-driven run:
 
