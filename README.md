@@ -8,8 +8,7 @@ This repository is an implementation of Dflash draft model training which contai
 - serving trained checkpoints
 - GuideLLM benchmarking and acceptance analysis
 
-Large artifacts (datasets, checkpoints, logs, outputs) are intentionally **not**
-committed. Scripts are organized by workflow stage under `scripts/`.
+Scripts are organized by workflow stage under `scripts/`.
 
 Models: [Qwen3-8B-Dflash](https://huggingface.co/krishnateja95/Qwen3-8B-Dflash) [Qwen3-8B-FP8-Dflash](https://huggingface.co/krishnateja95/Qwen3-8B-FP8-Dflash)
 
